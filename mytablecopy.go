@@ -129,6 +129,12 @@ func main() {
 		*fTgtPass = *fSrcPass
 	}
 
+	// Add where keyword if where clause is supplied
+	fmt.Println(*fSrcWhere)
+	if *fSrcWhere != "" {
+		*fSrcWhere = " where " + *fSrcWhere
+	}
+
 	// Split the table into schema and table name
 	srcSplit := strings.Split(*fSrcTable, ".")
 	tgtSplit := strings.Split(*fTgtTable, ".")
@@ -159,7 +165,7 @@ func main() {
 	target.columns = source.getColumns()
 
 	checkSchema(&source, &target)
-	target.writeTable(createStmt)
+	writeTable(&source, &target, createStmt)
 
 	dataChan := make(chan []sql.RawBytes)
 	quitChan := make(chan bool)
@@ -311,16 +317,21 @@ func checkSchema(src, tgt *dbInfo) {
 	}
 }
 
-func (target *dbInfo) writeTable(tableCreate string) {
+func writeTable(src, tgt *dbInfo, tableCreate string) {
 	// Start db transaction
-	tx, err := target.db.Begin()
+	tx, err := tgt.db.Begin()
 	checkErr(err)
 
-	_, err = tx.Exec("use " + target.schema)
+	_, err = tx.Exec("use " + tgt.schema)
 
 	// Drop table if exists
-	_, err = tx.Exec("drop table if exists " + addQuotes(target.table))
+	_, err = tx.Exec("drop table if exists " + addQuotes(tgt.table))
 	checkErr(err)
+
+	// Change table name if different
+	if src.table != tgt.table {
+		tableCreate = strings.Replace(tableCreate, src.table, tgt.table, 1)
+	}
 
 	// Create table
 	_, err = tx.Exec(tableCreate)
@@ -329,11 +340,10 @@ func (target *dbInfo) writeTable(tableCreate string) {
 	// Commit transaction
 	err = tx.Commit()
 	checkErr(err)
-
 }
 
 func readRows(src, tgt *dbInfo, dataChan chan []sql.RawBytes, quitChan chan bool, goChan chan bool) {
-	rows, err := src.db.Query("select * from " + addQuotes(src.schema) + "." + addQuotes(src.table) + " where " + src.where)
+	rows, err := src.db.Query("select * from " + addQuotes(src.schema) + "." + addQuotes(src.table) + src.where)
 	defer rows.Close()
 	checkErr(err)
 
@@ -353,9 +363,6 @@ func readRows(src, tgt *dbInfo, dataChan chan []sql.RawBytes, quitChan chan bool
 		err := rows.Scan(scanVals...)
 		checkErr(err)
 
-		//	for i, col := range vals {
-		//		stray[i] = col
-		//	}
 		copy(stray, vals)
 
 		dataChan <- stray
