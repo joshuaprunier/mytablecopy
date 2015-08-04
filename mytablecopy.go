@@ -11,14 +11,20 @@ import (
 	"os/signal"
 	"runtime/pprof"
 	"strings"
-	"syscall"
 	"time"
-	"unsafe"
 
-	_ "github.com/go-sql-driver/mysql" // Go MySQL driver
+	"golang.org/x/crypto/ssh/terminal"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
-const insertBufferSize = 1048576
+const (
+	// Insert buffer size
+	insertBufferSize = 1048576 // 1MB
+
+	// Timeout length where ctrl+c is ignored.
+	signalTimeout = 3 // Seconds
+)
 
 // Type definitions
 type (
@@ -37,32 +43,21 @@ type (
 	}
 )
 
+// Version information supplied by build script
+var versionInformation string
+
+// ShowUsage prints a help screen
+func showUsage() {
+	fmt.Printf("\tmytablecopy version %s\n", versionInformation)
+	fmt.Println(`
+			  `)
+}
+
 func main() {
 	start := time.Now()
 
-	// Trap for SIGINT, may need to trap other signals in the future as well
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
-
-	// Syscall in case signal is sent during terminal echo off
-	var oldState syscall.Termios
-	syscall.Syscall6(syscall.SYS_IOCTL, uintptr(0), syscall.TCGETS, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0)
-
-	var timer time.Time
-	go func() {
-		for sig := range sigChan {
-			if time.Now().Sub(timer) < time.Second*5 {
-				syscall.Syscall6(syscall.SYS_IOCTL, uintptr(0), syscall.TCSETS, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0)
-				os.Exit(0)
-			}
-
-			fmt.Println()
-			fmt.Println(sig, "signal caught!")
-			fmt.Println("Send signal again within 3 seconds to exit")
-
-			timer = time.Now()
-		}
-	}()
+	// Catch signals
+	catchNotifications()
 
 	// Profiling flags
 	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
@@ -84,7 +79,24 @@ func main() {
 	fTgtPort := flag.String("tgtport", "3306", "Target MySQL Port")
 	fTgtTable := flag.String("tgttable", "", "Target Table (must be fully qualified ex. schema.tablename)")
 
+	// Other flags
+	version := flag.Bool("version", false, "Version information")
+	help := flag.Bool("help", false, "Show usage")
+	h := flag.Bool("h", false, "Show usage")
+
 	flag.Parse()
+
+	// Print usage
+	if flag.NFlag() == 0 || *help == true || *h == true {
+		showUsage()
+
+		os.Exit(0)
+	}
+
+	if *version {
+		fmt.Printf("mytablecopy version %s\n", versionInformation)
+		os.Exit(0)
+	}
 
 	// CPU Profiling
 	if *cpuprofile != "" {
@@ -116,8 +128,14 @@ func main() {
 	// If password is blank prompt user - Not perfect as it prints the password typed to the screen
 	if *fSrcPass == "" {
 		fmt.Println("Enter password: ")
-		pwd, err := readPassword(0)
-		checkErr(err)
+		//		pwd, err := readPassword(0)
+		pwd, err := terminal.ReadPassword(int(os.Stdin.Fd()))
+		if err != nil {
+			if err != io.EOF {
+				checkErr(err)
+			}
+		}
+
 		*fSrcPass = string(pwd)
 	}
 
@@ -130,7 +148,6 @@ func main() {
 	}
 
 	// Add where keyword if where clause is supplied
-	fmt.Println(*fSrcWhere)
 	if *fSrcWhere != "" {
 		*fSrcWhere = " where " + *fSrcWhere
 	}
@@ -199,52 +216,36 @@ func checkErr(e error) {
 	}
 }
 
-// readPassword is borrowed from the crypto/ssh/terminal sub repo to accept a password from stdin without local echo.
-// http://godoc.org/code.google.com/p/go.crypto/ssh/terminal#Terminal.ReadPassword
-func readPassword(fd int) ([]byte, error) {
-	var oldState syscall.Termios
-	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), syscall.TCGETS, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0); err != 0 {
-		return nil, err
-	}
+// Catch signals
+func catchNotifications() {
+	state, err := terminal.GetState(int(os.Stdin.Fd()))
+	checkErr(err)
 
-	newState := oldState
-	newState.Lflag &^= syscall.ECHO
-	newState.Lflag |= syscall.ICANON | syscall.ISIG
-	newState.Iflag |= syscall.ICRNL
-	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), syscall.TCSETS, uintptr(unsafe.Pointer(&newState)), 0, 0, 0); err != 0 {
-		return nil, err
-	}
+	// Deal with SIGINT
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
 
-	defer func() {
-		syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), syscall.TCSETS, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0)
-	}()
-
-	var buf [16]byte
-	var ret []byte
-	for {
-		n, err := syscall.Read(fd, buf[:])
-		if err != nil {
-			return nil, err
-		}
-
-		if n == 0 {
-			if len(ret) == 0 {
-				return nil, io.EOF
+	var timer time.Time
+	go func() {
+		for sig := range sigChan {
+			// Prevent exiting on accidental signal send
+			if time.Now().Sub(timer) < time.Second*signalTimeout {
+				terminal.Restore(int(os.Stdin.Fd()), state)
+				os.Exit(0)
 			}
-			break
-		}
 
-		if buf[n-1] == '\n' {
-			n--
-		}
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, sig, "signal caught!")
+			fmt.Fprintf(os.Stderr, "Send signal again within %v seconds to exit\n", signalTimeout)
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "")
 
-		ret = append(ret, buf[:n]...)
-		if n < len(buf) {
-			break
+			timer = time.Now()
 		}
-	}
-
-	return ret, nil
+	}()
 }
 
 func (d *dbInfo) dbConn() (*sql.DB, error) {
