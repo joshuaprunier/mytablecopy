@@ -169,10 +169,12 @@ func main() {
 		*fSrcPass = string(pwd)
 	}
 
+	// Use source username if target not supplied
 	if *fTgtUser == "" && *fSrcUser != "" {
 		*fTgtUser = *fSrcUser
 	}
 
+	// Use source password if target not supplied
 	if *fTgtPass == "" && *fSrcPass != "" {
 		*fTgtPass = *fSrcPass
 	}
@@ -190,19 +192,19 @@ func main() {
 	target := dbInfo{user: *fTgtUser, pass: *fTgtPass, host: *fTgtHost, port: *fTgtPort, schema: tgtSplit[0], table: tgtSplit[1]}
 
 	// Create a *sql.DB connection to the source database
-	sourceDB, err := source.dbConn()
+	sourceDB, err := source.Connect()
 	defer sourceDB.Close()
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	source.db = sourceDB
 
 	// Create a *sql.DB connection to the target database
-	targetDB, err := target.dbConn()
+	targetDB, err := target.Connect()
 	defer targetDB.Close()
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	target.db = targetDB
@@ -278,18 +280,15 @@ func catchNotifications() {
 	}()
 }
 
-func (d *dbInfo) dbConn() (*sql.DB, error) {
-	// Determine tcp or socket connection
+// Create and return a database handle
+func (dbi *dbInfo) Connect() (*sql.DB, error) {
 	var db *sql.DB
 	var err error
-	if d.sock != "" {
-		db, err = sql.Open("mysql", d.user+":"+d.pass+"@unix("+d.sock+")/?allowCleartextPasswords=1")
+	if dbi.sock != "" {
+		db, err = sql.Open("mysql", dbi.user+":"+dbi.pass+"@unix("+dbi.sock+")/?allowCleartextPasswords=1&tls=skip-verify")
 		checkErr(err)
-	} else if d.host != "" {
-		db, err = sql.Open("mysql", d.user+":"+d.pass+"@tcp("+d.host+":"+d.port+")/?allowCleartextPasswords=1")
-		checkErr(err)
-	} else {
-		fmt.Println("should be no else")
+	} else if dbi.host != "" {
+		db, err = sql.Open("mysql", dbi.user+":"+dbi.pass+"@tcp("+dbi.host+":"+dbi.port+")/?allowCleartextPasswords=1&tls=skip-verify")
 	}
 
 	// Ping database to verify credentials
