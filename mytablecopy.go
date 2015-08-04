@@ -50,7 +50,37 @@ var versionInformation string
 func showUsage() {
 	fmt.Printf("\tmytablecopy version %s\n", versionInformation)
 	fmt.Println(`
-			  `)
+	USAGE:
+	mytablecopy -srcuser=jprunier -srcpass= -srchost=megaman -srctable=srchOpt.company -tgthost=inf-dev-db-0
+	mytablecopy -srcuser=jprunier -srcpass=mypass -srchost=megaman -srctable=srchOpt.company -where="1=1 limit 1000" -tgtuser=sqladmin -tgtpass=pass123 -tgthost=inf-dev-db-0 -tgttable=scratchpad.company_1k
+
+	SOURCE DATABASE FLAGS
+	=====================
+	-srcuser: Source Username (required)
+	-srcpass: Source Password (interactive prompt if blank)
+	-srchost: Source Database (localhost assumed if blank)
+	-srcport: Source MySQL Port (3306 default)
+	-srcsocket: Source MySQL Socket File
+	-srctable: Fully Qualified Source Tablename: ex. schema.tablename (required)
+	-where: Where clause to apply to source table select
+
+	SOURCE DATABASE FLAGS
+	=====================
+	-tgtuser: Target Username (source username used if blank)
+	-tgtpass: Target Password (source password used if blank)
+	-tgthost: Target Database (required)
+	-tgtport: Target MySQL Port (3306 default)
+	-tgtsocket: Target MySQL Socket File
+	-tgttable: Fully Qualified Target Tablename: ex. schema.tablename (source tablename used if blank)
+
+
+	DEBUG FLAGS
+	===========
+	-debug_cpu: CPU debugging filename
+	-debug_mem: Memory debugging filename
+	-version: Version information
+
+	`)
 }
 
 func main() {
@@ -60,24 +90,24 @@ func main() {
 	catchNotifications()
 
 	// Profiling flags
-	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
-	var memprofile = flag.String("memprofile", "", "write memory profile to this file")
+	cpuprofile := flag.String("debug_cpu", "", "CPU debugging filename")
+	memprofile := flag.String("debug_mem", "", "Memory debugging filename")
 
 	// Source flags
-	fSrcUser := flag.String("srcuser", "", "Source Username")
-	fSrcPass := flag.String("srcpassword", "", "Source Password")
-	fSrcHost := flag.String("srchost", "", "Source Database")
+	fSrcUser := flag.String("srcuser", "", "Source Username (required)")
+	fSrcPass := flag.String("srcpass", "", "Source Password (interactive prompt if blank)")
+	fSrcHost := flag.String("srchost", "", "Source Database (localhost assumed if blank)")
 	fSrcPort := flag.String("srcport", "3306", "Source MySQL Port")
-	fSrcSock := flag.String("srcsocket", "", "Source MySQL Socket")
-	fSrcTable := flag.String("srctable", "", "Source Table (must be fully qualified ex. schema.tablename)")
+	fSrcSock := flag.String("srcsocket", "", "Source MySQL Socket File")
+	fSrcTable := flag.String("srctable", "", "Fully Qualified Source Tablename: ex. schema.tablename (required)")
 	fSrcWhere := flag.String("where", "", "Where clause to apply to source table select")
 
 	// Target flags
-	fTgtUser := flag.String("tgtuser", "", "Target Username")
-	fTgtPass := flag.String("tgtpassword", "", "Target Password")
-	fTgtHost := flag.String("tgthost", "", "Target Database")
+	fTgtUser := flag.String("tgtuser", "", "Target Username (source username used if blank)")
+	fTgtPass := flag.String("tgtpass", "", "Target Password (source password used if blank)")
+	fTgtHost := flag.String("tgthost", "", "Target Database (required)")
 	fTgtPort := flag.String("tgtport", "3306", "Target MySQL Port")
-	fTgtTable := flag.String("tgttable", "", "Target Table (must be fully qualified ex. schema.tablename)")
+	fTgtTable := flag.String("tgttable", "", "Fully Qualified Target Tablename: ex. schema.tablename (source tablename used if blank)")
 
 	// Other flags
 	version := flag.Bool("version", false, "Version information")
