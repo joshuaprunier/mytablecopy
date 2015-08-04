@@ -43,9 +43,9 @@ echo "Building Darwin"
 mkdir -p bin/darwin
 GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.versionInformation $version" -o bin/darwin/mytablecopy mytablecopy.go
 if [[ $? -eq 0 ]]; then
-        echo "  mytablecopy_mac - OK"
+        echo "  mytablecopy - OK"
 else
-        echo "  mytablecopy_mac - FAILED"
+        echo "  mytablecopy - FAILED"
 fi
 
 echo

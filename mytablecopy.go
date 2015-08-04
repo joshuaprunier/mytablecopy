@@ -209,25 +209,31 @@ func main() {
 	}
 	target.db = targetDB
 
-	createStmt := source.readTable()
+	// Get create table statement
+	createStmt := source.getCreateTable()
 
-	target.columns = source.getColumns()
+	// Get table column data types
+	target.columns = source.getDataTypes()
 
-	checkSchema(&source, &target)
-	writeTable(&source, &target, createStmt)
+	// Create the target schema if it does not already exist
+	createSchema(&source, &target)
 
+	// Drop and recreate the target table
+	createTable(&source, &target, createStmt)
+
+	// Create communication channels
 	dataChan := make(chan []sql.RawBytes)
 	quitChan := make(chan bool)
 	goChan := make(chan bool)
+
+	// Start reading and writing
 	go readRows(&source, &target, dataChan, quitChan, goChan)
 	target.writeRows(dataChan, goChan)
 
+	// Block on quitChan until readRows() completes
 	<-quitChan
 	close(quitChan)
 	close(goChan)
-
-	//  fmt.Println(source)
-	//  fmt.Println(target)
 
 	// Memory Profiling
 	if *memprofile != "" {
@@ -303,7 +309,8 @@ func addQuotes(s string) string {
 	return s
 }
 
-func (src *dbInfo) readTable() string {
+// Get create table statement from the source
+func (src *dbInfo) getCreateTable() string {
 	var err error
 	var ignore string
 	var stmt string
@@ -313,7 +320,8 @@ func (src *dbInfo) readTable() string {
 	return stmt
 }
 
-func (src *dbInfo) getColumns() []string {
+// Get column data types from the source table
+func (src *dbInfo) getDataTypes() []string {
 	var cols = []string{}
 	rows, err := src.db.Query("select data_type from information_schema.columns where table_schema = '" + src.schema + "' and table_name = '" + src.table + "'")
 	defer rows.Close()
@@ -331,8 +339,8 @@ func (src *dbInfo) getColumns() []string {
 	return cols
 }
 
-// checkSchema creates a schema if it does not already exist
-func checkSchema(src, tgt *dbInfo) {
+// Create the target schema if it does not already exist
+func createSchema(src, tgt *dbInfo) {
 	var exists string
 	err := tgt.db.QueryRow("show databases like '" + tgt.schema + "'").Scan(&exists)
 
@@ -347,7 +355,8 @@ func checkSchema(src, tgt *dbInfo) {
 	}
 }
 
-func writeTable(src, tgt *dbInfo, tableCreate string) {
+// Drop and recreate the target table
+func createTable(src, tgt *dbInfo, tableCreate string) {
 	// Start db transaction
 	tx, err := tgt.db.Begin()
 	checkErr(err)
@@ -372,34 +381,34 @@ func writeTable(src, tgt *dbInfo, tableCreate string) {
 	checkErr(err)
 }
 
+// readRows executes a query and sends each row over a channel to be consumed
 func readRows(src, tgt *dbInfo, dataChan chan []sql.RawBytes, quitChan chan bool, goChan chan bool) {
 	rows, err := src.db.Query("select * from " + addQuotes(src.schema) + "." + addQuotes(src.table) + src.where)
 	defer rows.Close()
-	checkErr(err)
+	if err != nil {
+		log.Print(err)
+		os.Exit(1)
+	}
 
 	cols, err := rows.Columns()
 	checkErr(err)
 
-	// Need to scan into empty interface since we don't know how many columns or their types
+	// Need to scan into empty interface since we don't know how many columns a query might return
 	scanVals := make([]interface{}, len(cols))
 	vals := make([]sql.RawBytes, len(cols))
-	stray := make([]sql.RawBytes, len(cols))
 	for i := range vals {
 		scanVals[i] = &vals[i]
 	}
 
-	var rowNum int64
 	for rows.Next() {
 		err := rows.Scan(scanVals...)
 		checkErr(err)
 
-		copy(stray, vals)
+		dataChan <- vals
 
-		dataChan <- stray
-		rowNum++
-
-		// Block until writeRows() signals it is safe to proceed
-		// This is necessary because sql.RawBytes is a memory pointer and rows.Next() will loop and change the memory address before writeRows can properly process the values
+		// Block and wait for writeRows() to signal back it has consumed the data
+		// This is necessary because sql.RawBytes is a memory pointer and when rows.Next()
+		// loops and change the memory address before writeRows can properly process the values
 		<-goChan
 	}
 
@@ -408,10 +417,9 @@ func readRows(src, tgt *dbInfo, dataChan chan []sql.RawBytes, quitChan chan bool
 
 	close(dataChan)
 	quitChan <- true
-
-	fmt.Println(rowNum, "rows inserted")
 }
 
+// writeRows receives data via a channel from readRows, wraps insert syntax around it, bulks statements up to insertBufferSize and then executes against the target database
 func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool) {
 	var cleaned []byte
 	buf := bytes.NewBuffer(make([]byte, 0, insertBufferSize))
@@ -464,6 +472,7 @@ func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool) 
 
 		buf.WriteString(")")
 
+		// Execute insert statement if greater than insertBufferSize
 		if buf.Len() > insertBufferSize {
 			//buf.WriteTo(os.Stdout) // DEBUG
 			//fmt.Println()          // DEBUG
@@ -478,11 +487,11 @@ func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool) 
 			append = false
 		}
 
-		// Allow read function to loop over rows
+		// Signal back to readRows() it can loop and scan the next row
 		goChan <- true
 	}
 
-	// Apply left over data
+	// Insert remaining rows
 	if buf.Len() > prefix {
 		//buf.WriteTo(os.Stdout) // DEBUG
 		//fmt.Println()          // DEBUG
