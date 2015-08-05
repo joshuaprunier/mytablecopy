@@ -372,6 +372,10 @@ func createTable(src, tgt *dbInfo, tableCreate string) {
 		tableCreate = strings.Replace(tableCreate, src.table, tgt.table, 1)
 	}
 
+	// Turn off foreign key checks
+	_, err = tx.Exec("set foreign_key_checks=0")
+	checkErr(err)
+
 	// Create table
 	_, err = tx.Exec(tableCreate)
 	checkErr(err)
