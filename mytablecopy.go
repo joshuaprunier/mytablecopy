@@ -217,7 +217,7 @@ func main() {
 	target.columns = source.getDataTypes()
 
 	// Create the target schema if it does not already exist
-	createSchema(&source, &target)
+	createSchema(&source, &target, *verbose)
 
 	// Drop and recreate the target table
 	createTable(&source, &target, createStmt)
@@ -345,7 +345,7 @@ func (src *dbInfo) getDataTypes() []string {
 }
 
 // Create the target schema if it does not already exist
-func createSchema(src, tgt *dbInfo) {
+func createSchema(src, tgt *dbInfo, verbose bool) {
 	var exists string
 	err := tgt.db.QueryRow("show databases like '" + tgt.schema + "'").Scan(&exists)
 
@@ -356,7 +356,9 @@ func createSchema(src, tgt *dbInfo) {
 		_, err = tgt.db.Exec("create database " + addQuotes(tgt.schema) + " default character set " + charSet)
 		checkErr(err)
 
-		fmt.Println("       Created schema", tgt.schema)
+		if verbose {
+			fmt.Println("       Created schema", tgt.schema)
+		}
 	}
 }
 
