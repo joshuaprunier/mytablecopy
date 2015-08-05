@@ -79,6 +79,7 @@ func showUsage() {
 	-debug_cpu: CPU debugging filename
 	-debug_mem: Memory debugging filename
 	-version: Version information
+	-v: Print more information (false default)
 
 	`)
 }
@@ -111,6 +112,7 @@ func main() {
 
 	// Other flags
 	version := flag.Bool("version", false, "Version information")
+	verbose := flag.Bool("v", false, "Print more information")
 	help := flag.Bool("help", false, "Show usage")
 	h := flag.Bool("h", false, "Show usage")
 
@@ -143,7 +145,6 @@ func main() {
 
 	// Need to provide a target
 	if *fTgtHost == "" {
-		fmt.Println("You must provide a target database")
 		os.Exit(1)
 	}
 
@@ -151,7 +152,7 @@ func main() {
 	if *fTgtTable == "" && *fSrcTable != "" {
 		*fTgtTable = *fSrcTable
 	} else if *fSrcTable == "" || !strings.Contains(*fSrcTable, ".") {
-		fmt.Println("You must provide a fully qualifed table to move")
+		fmt.Fprintln(os.Stderr, "You must provide a fully qualifed table to move")
 		os.Exit(1)
 	}
 
@@ -228,7 +229,7 @@ func main() {
 
 	// Start reading and writing
 	go readRows(&source, &target, dataChan, quitChan, goChan)
-	target.writeRows(dataChan, goChan)
+	rowCount := target.writeRows(dataChan, goChan, *verbose)
 
 	// Block on quitChan until readRows() completes
 	<-quitChan
@@ -243,8 +244,12 @@ func main() {
 		defer f.Close()
 	}
 
-	fmt.Println()
-	fmt.Println("Total runtime =", time.Since(start))
+	if *verbose {
+		fmt.Println()
+		fmt.Println()
+		fmt.Println(rowCount, "rows written")
+		fmt.Println("Total runtime =", time.Since(start))
+	}
 }
 
 // Pass the buck error catching
@@ -361,6 +366,10 @@ func createTable(src, tgt *dbInfo, tableCreate string) {
 	tx, err := tgt.db.Begin()
 	checkErr(err)
 
+	// Turn off foreign key checks
+	_, err = tx.Exec("set foreign_key_checks=0")
+	checkErr(err)
+
 	_, err = tx.Exec("use " + tgt.schema)
 
 	// Drop table if exists
@@ -371,10 +380,6 @@ func createTable(src, tgt *dbInfo, tableCreate string) {
 	if src.table != tgt.table {
 		tableCreate = strings.Replace(tableCreate, src.table, tgt.table, 1)
 	}
-
-	// Turn off foreign key checks
-	_, err = tx.Exec("set foreign_key_checks=0")
-	checkErr(err)
 
 	// Create table
 	_, err = tx.Exec(tableCreate)
@@ -424,9 +429,15 @@ func readRows(src, tgt *dbInfo, dataChan chan []sql.RawBytes, quitChan chan bool
 }
 
 // writeRows receives data via a channel from readRows, wraps insert syntax around it, bulks statements up to insertBufferSize and then executes against the target database
-func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool) {
+func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, verbose bool) uint {
+	var rowsWritten uint
+	var verboseCount uint
 	var cleaned []byte
 	buf := bytes.NewBuffer(make([]byte, 0, insertBufferSize))
+
+	if verbose {
+		fmt.Println("A '.' will be shown for every 10,000 CSV rows written")
+	}
 
 	sqlPrefix := "insert into " + addQuotes(target.schema) + "." + addQuotes(target.table) + " values ("
 	prefix, _ := buf.WriteString(sqlPrefix)
@@ -475,6 +486,16 @@ func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool) 
 		}
 
 		buf.WriteString(")")
+
+		// Visual write indicator when verbose is enabled
+		rowsWritten++
+		if verbose {
+			verboseCount++
+			if verboseCount == 10000 {
+				fmt.Printf(".")
+				verboseCount = 0
+			}
+		}
 
 		// Execute insert statement if greater than insertBufferSize
 		if buf.Len() > insertBufferSize {
@@ -526,4 +547,6 @@ func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool) 
 		err = tx.Commit()
 		checkErr(err)
 	}
+
+	return rowsWritten
 }
