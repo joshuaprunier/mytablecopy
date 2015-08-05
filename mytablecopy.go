@@ -449,9 +449,9 @@ func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool) 
 					fallthrough
 				case "longtext":
 					fallthrough
-				case "varchar":
-					fallthrough
 				case "char":
+					fallthrough
+				case "varchar":
 					cleaned = col
 					cleaned = bytes.Replace(cleaned, []byte(`\`), []byte(`\\`), -1)
 					cleaned = bytes.Replace(cleaned, []byte(`'`), []byte(`\'`), -1)
@@ -474,12 +474,24 @@ func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool) 
 
 		// Execute insert statement if greater than insertBufferSize
 		if buf.Len() > insertBufferSize {
+			// Start db transaction
+			tx, err := target.db.Begin()
+			checkErr(err)
+
+			// Turn off foreign key checks
+			_, err = tx.Exec("set foreign_key_checks=0")
+			checkErr(err)
+
 			//buf.WriteTo(os.Stdout) // DEBUG
 			//fmt.Println()          // DEBUG
-			_, err := target.db.Exec(buf.String())
+			_, err = tx.Exec(buf.String())
 			if err != nil {
 				fmt.Println(buf.String())
 			}
+			checkErr(err)
+
+			// Commit transaction
+			err = tx.Commit()
 			checkErr(err)
 
 			buf.Reset()
@@ -493,9 +505,21 @@ func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool) 
 
 	// Insert remaining rows
 	if buf.Len() > prefix {
+		// Start db transaction
+		tx, err := target.db.Begin()
+		checkErr(err)
+
+		// Turn off foreign key checks
+		_, err = tx.Exec("set foreign_key_checks=0")
+		checkErr(err)
+
 		//buf.WriteTo(os.Stdout) // DEBUG
 		//fmt.Println()          // DEBUG
-		_, err := target.db.Exec(buf.String())
+		_, err = tx.Exec(buf.String())
+		checkErr(err)
+
+		// Commit transaction
+		err = tx.Commit()
 		checkErr(err)
 	}
 }
