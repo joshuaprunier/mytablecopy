@@ -434,7 +434,6 @@ func readRows(src, tgt *dbInfo, dataChan chan []sql.RawBytes, quitChan chan bool
 func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, verbose bool) uint {
 	var rowsWritten uint
 	var verboseCount uint
-	var cleaned []byte
 	buf := bytes.NewBuffer(make([]byte, 0, insertBufferSize))
 
 	if verbose {
@@ -469,12 +468,11 @@ func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, 
 				case "char":
 					fallthrough
 				case "varchar":
-					cleaned = col
-					cleaned = bytes.Replace(cleaned, []byte(`\`), []byte(`\\`), -1)
-					cleaned = bytes.Replace(cleaned, []byte(`'`), []byte(`\'`), -1)
-					buf.WriteString("'")
-					buf.Write(cleaned)
-					buf.WriteString("'")
+					if bytes.IndexAny(col, `\'`) >= 0 {
+						col = bytes.Replace(col, []byte(`\`), []byte(`\\`), -1)
+						col = bytes.Replace(col, []byte(`'`), []byte(`\'`), -1)
+					}
+					fallthrough
 				default:
 					buf.WriteString("'")
 					buf.Write(col)
@@ -482,6 +480,7 @@ func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, 
 				}
 			}
 
+			// All fields but the last one are comma delimited
 			if i < len(target.columns)-1 {
 				buf.WriteString(",")
 			}
@@ -512,9 +511,6 @@ func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, 
 			//buf.WriteTo(os.Stdout) // DEBUG
 			//fmt.Println()          // DEBUG
 			_, err = tx.Exec(buf.String())
-			if err != nil {
-				fmt.Println(buf.String())
-			}
 			checkErr(err)
 
 			// Commit transaction
