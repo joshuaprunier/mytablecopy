@@ -525,6 +525,10 @@ func (dbi *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, ver
 			_, err = tx.Exec("set foreign_key_checks=0")
 			checkErr(err)
 
+			// Use schema
+			_, err = tx.Exec("use " + addQuotes(dbi.schema))
+			checkErr(err)
+
 			//buf.WriteTo(os.Stdout) // DEBUG
 			//fmt.Println()          // DEBUG
 			_, err = tx.Exec(buf.String())
@@ -555,6 +559,10 @@ func (dbi *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, ver
 
 		// Turn off foreign key checks
 		_, err = tx.Exec("set foreign_key_checks=0")
+		checkErr(err)
+
+		// Use schema
+		_, err = tx.Exec("use " + addQuotes(dbi.schema))
 		checkErr(err)
 
 		//buf.WriteTo(os.Stdout) // DEBUG
