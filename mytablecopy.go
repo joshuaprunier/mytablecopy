@@ -273,8 +273,12 @@ func checkErr(e error) {
 
 // Catch signals
 func catchNotifications() {
+	ignoreStdin := false
 	state, err := terminal.GetState(int(os.Stdin.Fd()))
-	checkErr(err)
+	if err != nil {
+		// Stdin may be redirected, then just exit
+		ignoreStdin = true
+	}
 
 	// Deal with SIGINT
 	sigChan := make(chan os.Signal, 1)
@@ -283,22 +287,28 @@ func catchNotifications() {
 	var timer time.Time
 	go func() {
 		for sig := range sigChan {
-			// Prevent exiting on accidental signal send
-			if time.Now().Sub(timer) < time.Second*signalTimeout {
-				terminal.Restore(int(os.Stdin.Fd()), state)
+			if ignoreStdin {
+				fmt.Fprintln(os.Stderr, sig, "signal caught!")
+				fmt.Fprintln(os.Stderr, "Exiting")
 				os.Exit(0)
+			} else {
+				// Prevent exiting on accidental signal send
+				if time.Now().Sub(timer) < time.Second*signalTimeout {
+					terminal.Restore(int(os.Stdin.Fd()), state)
+					os.Exit(0)
+				}
+
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, sig, "signal caught!")
+				fmt.Fprintf(os.Stderr, "Send signal again within %v seconds to exit\n", signalTimeout)
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "")
+
+				timer = time.Now()
 			}
-
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, sig, "signal caught!")
-			fmt.Fprintf(os.Stderr, "Send signal again within %v seconds to exit\n", signalTimeout)
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "")
-
-			timer = time.Now()
 		}
 	}()
 }
