@@ -5,7 +5,7 @@ minor_rev="0"
 commit_num=`git shortlog -s | awk '{ sum += $1 } END { print sum }'`
 gitsha=`git log -n1 --pretty="%h"`
 date=`date +"%Y%m%d"`
-time=`date +"%k%M%S"`
+time=`date +"%H%M%S"`
 
 version=${major_rev}.${minor_rev}.${commit_num}-${gitsha}-${date}.${time}
 
