@@ -314,21 +314,21 @@ func addQuotes(s string) string {
 	return s
 }
 
-// Get create table statement from the source
-func (src *dbInfo) getCreateTable() string {
+// Get create table statement
+func (dbi *dbInfo) getCreateTable() string {
 	var err error
 	var ignore string
 	var stmt string
-	err = src.db.QueryRow("show create table "+addQuotes(src.schema)+"."+addQuotes(src.table)).Scan(&ignore, &stmt)
+	err = dbi.db.QueryRow("show create table "+addQuotes(dbi.schema)+"."+addQuotes(dbi.table)).Scan(&ignore, &stmt)
 	checkErr(err)
 
 	return stmt
 }
 
-// Get column data types from the source table
-func (src *dbInfo) getDataTypes() []string {
+// Get column data types
+func (dbi *dbInfo) getDataTypes() []string {
 	var cols = []string{}
-	rows, err := src.db.Query("select data_type from information_schema.columns where table_schema = '" + src.schema + "' and table_name = '" + src.table + "'")
+	rows, err := dbi.db.Query("select data_type from information_schema.columns where table_schema = '" + dbi.schema + "' and table_name = '" + dbi.table + "'")
 	defer rows.Close()
 	checkErr(err)
 
@@ -431,7 +431,7 @@ func readRows(src, tgt *dbInfo, dataChan chan []sql.RawBytes, quitChan chan bool
 }
 
 // writeRows receives data via a channel from readRows, wraps insert syntax around it, bulks statements up to insertBufferSize and then executes against the target database
-func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, verbose bool) uint {
+func (dbi *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, verbose bool) uint {
 	var rowsWritten uint
 	var verboseCount uint
 	buf := bytes.NewBuffer(make([]byte, 0, insertBufferSize))
@@ -440,7 +440,7 @@ func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, 
 		fmt.Println("A '.' will be shown for every 10,000 CSV rows written")
 	}
 
-	sqlPrefix := "insert into " + addQuotes(target.schema) + "." + addQuotes(target.table) + " values ("
+	sqlPrefix := "insert into " + addQuotes(dbi.schema) + "." + addQuotes(dbi.table) + " values ("
 	prefix, _ := buf.WriteString(sqlPrefix)
 
 	append := false
@@ -456,7 +456,7 @@ func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, 
 			} else if len(col) == 0 {
 				buf.WriteString("''")
 			} else {
-				switch target.columns[i] {
+				switch dbi.columns[i] {
 				case "tinytext":
 					fallthrough
 				case "text":
@@ -481,7 +481,7 @@ func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, 
 			}
 
 			// All fields but the last one are comma delimited
-			if i < len(target.columns)-1 {
+			if i < len(dbi.columns)-1 {
 				buf.WriteString(",")
 			}
 		}
@@ -501,7 +501,7 @@ func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, 
 		// Execute insert statement if greater than insertBufferSize
 		if buf.Len() > insertBufferSize {
 			// Start db transaction
-			tx, err := target.db.Begin()
+			tx, err := dbi.db.Begin()
 			checkErr(err)
 
 			// Turn off foreign key checks
@@ -529,7 +529,7 @@ func (target *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, 
 	// Insert remaining rows
 	if buf.Len() > prefix {
 		// Start db transaction
-		tx, err := target.db.Begin()
+		tx, err := dbi.db.Begin()
 		checkErr(err)
 
 		// Turn off foreign key checks
