@@ -64,7 +64,7 @@ func showUsage() {
 	-srctable: Fully Qualified Source Tablename: ex. schema.tablename (required)
 	-where: Where clause to apply to source table select
 
-	SOURCE DATABASE FLAGS
+	TARGET DATABASE FLAGS
 	=====================
 	-tgtuser: Target Username (source username used if blank)
 	-tgtpass: Target Password (source password used if blank)
@@ -72,6 +72,8 @@ func showUsage() {
 	-tgtport: Target MySQL Port (3306 default)
 	-tgtsocket: Target MySQL Socket File
 	-tgttable: Fully Qualified Target Tablename: ex. schema.tablename (source tablename used if blank)
+	-ignore: Do insert ignore's and enable the -append flag (false default)
+	-append: Don't drop the destination table before copying (false default)
 
 
 	DEBUG FLAGS
@@ -109,6 +111,8 @@ func main() {
 	fTgtHost := flag.String("tgthost", "", "Target Database (required)")
 	fTgtPort := flag.String("tgtport", "3306", "Target MySQL Port")
 	fTgtTable := flag.String("tgttable", "", "Fully Qualified Target Tablename: ex. schema.tablename (source tablename used if blank)")
+	fTgtIgnore := flag.Bool("ignore", false, "Do insert ignore's and enable the -append flag")
+	fTgtAppend := flag.Bool("append", false, "Don't drop the destination table before copying")
 
 	// Other flags
 	version := flag.Bool("version", false, "Version information")
@@ -154,6 +158,11 @@ func main() {
 	} else if *fSrcTable == "" || !strings.Contains(*fSrcTable, ".") {
 		fmt.Fprintln(os.Stderr, "You must provide a fully qualifed table to move")
 		os.Exit(1)
+	}
+
+	// If -ignore is enabled also make sure -append is enabled
+	if *fTgtIgnore {
+		*fTgtAppend = true
 	}
 
 	// If password is blank prompt user - Not perfect as it prints the password typed to the screen
@@ -216,11 +225,14 @@ func main() {
 	// Get table column data types
 	target.columns = source.getDataTypes()
 
-	// Create the target schema if it does not already exist
-	createSchema(&source, &target, *verbose)
+	// Only (re)create the schema & table if not appending
+	if *fTgtAppend == false {
+		// Create the target schema if it does not already exist
+		createSchema(&source, &target, *verbose)
 
-	// Drop and recreate the target table
-	createTable(&source, &target, createStmt)
+		// Drop and recreate the target table
+		createTable(&source, &target, createStmt)
+	}
 
 	// Create communication channels
 	dataChan := make(chan []sql.RawBytes)
@@ -229,7 +241,7 @@ func main() {
 
 	// Start reading and writing
 	go readRows(&source, &target, dataChan, quitChan, goChan)
-	rowCount := target.writeRows(dataChan, goChan, *verbose)
+	rowCount := target.writeRows(dataChan, goChan, *verbose, *fTgtIgnore)
 
 	// Block on quitChan until readRows() completes
 	<-quitChan
@@ -398,7 +410,7 @@ func readRows(src, tgt *dbInfo, dataChan chan []sql.RawBytes, quitChan chan bool
 	defer rows.Close()
 	if err != nil {
 		log.Print(err)
-		os.Exit(1)
+		os.Exit(11)
 	}
 
 	cols, err := rows.Columns()
@@ -431,7 +443,7 @@ func readRows(src, tgt *dbInfo, dataChan chan []sql.RawBytes, quitChan chan bool
 }
 
 // writeRows receives data via a channel from readRows, wraps insert syntax around it, bulks statements up to insertBufferSize and then executes against the target database
-func (dbi *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, verbose bool) uint {
+func (dbi *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, verbose bool, ignore bool) uint {
 	var rowsWritten uint
 	var verboseCount uint
 	buf := bytes.NewBuffer(make([]byte, 0, insertBufferSize))
@@ -440,15 +452,20 @@ func (dbi *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, ver
 		fmt.Println("A '.' will be shown for every 10,000 CSV rows written")
 	}
 
-	sqlPrefix := "insert into " + addQuotes(dbi.schema) + "." + addQuotes(dbi.table) + " values ("
-	prefix, _ := buf.WriteString(sqlPrefix)
+	var sqlPrefix string
+	if ignore {
+		sqlPrefix = "insert ignore into " + addQuotes(dbi.schema) + "." + addQuotes(dbi.table) + " values ("
+	} else {
+		sqlPrefix = "insert into " + addQuotes(dbi.schema) + "." + addQuotes(dbi.table) + " values ("
+	}
+	prefixLength, _ := buf.WriteString(sqlPrefix)
 
-	append := false
+	appendSQL := false
 	for data := range dataChan {
-		if append {
+		if appendSQL {
 			buf.WriteString(",(")
 		}
-		append = true
+		appendSQL = true
 
 		for i, col := range data {
 			if col == nil {
@@ -511,7 +528,11 @@ func (dbi *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, ver
 			//buf.WriteTo(os.Stdout) // DEBUG
 			//fmt.Println()          // DEBUG
 			_, err = tx.Exec(buf.String())
-			checkErr(err)
+			if err != nil {
+				fmt.Fprintln(os.Stderr)
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(11)
+			}
 
 			// Commit transaction
 			err = tx.Commit()
@@ -519,7 +540,7 @@ func (dbi *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, ver
 
 			buf.Reset()
 			buf.WriteString(sqlPrefix)
-			append = false
+			appendSQL = false
 		}
 
 		// Signal back to readRows() it can loop and scan the next row
@@ -527,7 +548,7 @@ func (dbi *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, ver
 	}
 
 	// Insert remaining rows
-	if buf.Len() > prefix {
+	if buf.Len() > prefixLength {
 		// Start db transaction
 		tx, err := dbi.db.Begin()
 		checkErr(err)
@@ -539,7 +560,11 @@ func (dbi *dbInfo) writeRows(dataChan chan []sql.RawBytes, goChan chan bool, ver
 		//buf.WriteTo(os.Stdout) // DEBUG
 		//fmt.Println()          // DEBUG
 		_, err = tx.Exec(buf.String())
-		checkErr(err)
+		if err != nil {
+			fmt.Fprintln(os.Stderr)
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(11)
+		}
 
 		// Commit transaction
 		err = tx.Commit()
