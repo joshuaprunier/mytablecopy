@@ -51,8 +51,8 @@ func showUsage() {
 	fmt.Printf("\tmytablecopy version %s\n", versionInformation)
 	fmt.Println(`
 	USAGE:
-	mytablecopy -srcuser=jprunier -srcpass= -srchost=megaman -srctable=srchOpt.company -tgthost=inf-dev-db-0
-	mytablecopy -srcuser=jprunier -srcpass=mypass -srchost=megaman -srctable=srchOpt.company -where="1=1 limit 1000" -tgtuser=sqladmin -tgtpass=pass123 -tgthost=inf-dev-db-0 -tgttable=scratchpad.company_1k
+	mytablecopy -srcuser=jprunier -srcpass= -srchost=db1 -srctable=test.mytable -tgthost=db2
+	mytablecopy -srcuser=jprunier -srcpass=mypass -srchost=db1 -srctable=test.mytable -where="1=1 limit 1000" -tgtuser=root -tgtpass=pass123 -tgthost=db2 -tgttable=scratchpad.newtable
 
 	SOURCE DATABASE FLAGS
 	=====================
@@ -147,8 +147,9 @@ func main() {
 		*fSrcSock = "/var/lib/mysql/mysql.sock"
 	}
 
-	// Need to provide a target
+	// Need to provide a target database
 	if *fTgtHost == "" {
+		fmt.Fprintln(os.Stderr, "You must provide a target database")
 		os.Exit(1)
 	}
 
