@@ -51,6 +51,9 @@ func showUsage() {
 	fmt.Printf("\tmytablecopy version %s\n", versionInformation)
 	fmt.Println(`
 	USAGE:
+	mytablecopy SOURCE_FLAGS TARGET_FLAGS [DEBUG FLAGS]
+
+	EXAMPLES:
 	mytablecopy -srcuser=jprunier -srcpass= -srchost=db1 -srctable=test.mytable -tgthost=db2
 	mytablecopy -srcuser=jprunier -srcpass=mypass -srchost=db1 -srctable=test.mytable -where="1=1 limit 1000" -tgtuser=root -tgtpass=pass123 -tgthost=db2 -tgttable=scratchpad.newtable
 

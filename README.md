@@ -48,6 +48,9 @@ Usage
 mytablecopy version 1.0.19-c98a96b-20150810.130749
 
 USAGE:
+mytablecopy SOURCE_FLAGS TARGET_FLAGS [DEBUG FLAGS]
+
+EXAMPLES:
 mytablecopy -srcuser=jprunier -srcpass= -srchost=db1 -srctable=test.mytable -tgthost=db2
 mytablecopy -srcuser=jprunier -srcpass=mypass -srchost=db1 -srctable=test.mytable -where="1=1 limit 1000" -tgtuser=root -tgtpass=pass123 -tgthost=db2 -tgttable=scratchpad.newtable
 
