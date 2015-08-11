@@ -346,7 +346,11 @@ func (dbi *dbInfo) getCreateTable() string {
 	var ignore string
 	var stmt string
 	err = dbi.db.QueryRow("show create table "+addQuotes(dbi.schema)+"."+addQuotes(dbi.table)).Scan(&ignore, &stmt)
-	checkErr(err)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, "Copying of views is not supported")
+		os.Exit(11)
+	}
 
 	return stmt
 }
