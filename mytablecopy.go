@@ -36,6 +36,7 @@ type (
 		host    string
 		port    string
 		sock    string
+		tls     bool
 		schema  string
 		table   string
 		where   string
@@ -64,6 +65,7 @@ func showUsage() {
 	-srchost: Source Database (localhost assumed if blank)
 	-srcport: Source MySQL Port (3306 default)
 	-srcsocket: Source MySQL Socket File
+	-srctls: Use TLS, also enables cleartext passwords (default false)
 	-srctable: Fully Qualified Source Tablename: ex. schema.tablename (required)
 	-where: Where clause to apply to source table select
 
@@ -74,6 +76,7 @@ func showUsage() {
 	-tgthost: Target Database (required)
 	-tgtport: Target MySQL Port (3306 default)
 	-tgtsocket: Target MySQL Socket File
+	-tgttls: Use TLS, also enables cleartext passwords (default false)
 	-tgttable: Fully Qualified Target Tablename: ex. schema.tablename (source tablename used if blank)
 	-ignore: Do insert ignore's and enable the -append flag (false default)
 	-append: Don't drop the destination table before copying (false default)
@@ -105,6 +108,7 @@ func main() {
 	fSrcHost := flag.String("srchost", "", "Source Database (localhost assumed if blank)")
 	fSrcPort := flag.String("srcport", "3306", "Source MySQL Port")
 	fSrcSock := flag.String("srcsocket", "", "Source MySQL Socket File")
+	fSrcTLS := flag.Bool("srctls", false, "Enable TLS & cleartext passwords")
 	fSrcTable := flag.String("srctable", "", "Fully Qualified Source Tablename: ex. schema.tablename (required)")
 	fSrcWhere := flag.String("where", "", "Where clause to apply to source table select")
 
@@ -113,6 +117,7 @@ func main() {
 	fTgtPass := flag.String("tgtpass", "", "Target Password (source password used if blank)")
 	fTgtHost := flag.String("tgthost", "", "Target Database (required)")
 	fTgtPort := flag.String("tgtport", "3306", "Target MySQL Port")
+	fTgtTLS := flag.Bool("tgttls", false, "Enable TLS & cleartext passwords")
 	fTgtTable := flag.String("tgttable", "", "Fully Qualified Target Tablename: ex. schema.tablename (source tablename used if blank)")
 	fTgtIgnore := flag.Bool("ignore", false, "Do insert ignore's and enable the -append flag")
 	fTgtAppend := flag.Bool("append", false, "Don't drop the destination table before copying")
@@ -202,11 +207,11 @@ func main() {
 	srcSplit := strings.Split(*fSrcTable, ".")
 	tgtSplit := strings.Split(*fTgtTable, ".")
 
-	source := dbInfo{user: *fSrcUser, pass: *fSrcPass, host: *fSrcHost, port: *fSrcPort, sock: *fSrcSock, schema: srcSplit[0], table: srcSplit[1], where: *fSrcWhere}
-	target := dbInfo{user: *fTgtUser, pass: *fTgtPass, host: *fTgtHost, port: *fTgtPort, schema: tgtSplit[0], table: tgtSplit[1]}
+	source := dbInfo{user: *fSrcUser, pass: *fSrcPass, host: *fSrcHost, port: *fSrcPort, sock: *fSrcSock, tls: *fSrcTLS, schema: srcSplit[0], table: srcSplit[1], where: *fSrcWhere}
+	target := dbInfo{user: *fTgtUser, pass: *fTgtPass, host: *fTgtHost, port: *fTgtPort, tls: *fTgtTLS, schema: tgtSplit[0], table: tgtSplit[1]}
 
 	// Create a *sql.DB connection to the source database
-	sourceDB, err := source.Connect()
+	sourceDB, err := source.connect()
 	defer sourceDB.Close()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -215,7 +220,7 @@ func main() {
 	source.db = sourceDB
 
 	// Create a *sql.DB connection to the target database
-	targetDB, err := target.Connect()
+	targetDB, err := target.connect()
 	defer targetDB.Close()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -318,14 +323,22 @@ func catchNotifications() {
 }
 
 // Create and return a database handle
-func (dbi *dbInfo) Connect() (*sql.DB, error) {
+func (dbi *dbInfo) connect() (*sql.DB, error) {
+	// Set MySQL driver parameters
+	dbParameters := ""
+
+	// Append cleartext and tls parameters if TLS is specified
+	if dbi.tls == true {
+		dbParameters = dbParameters + "&allowCleartextPasswords=1&tls=skip-verify"
+	}
+
 	var db *sql.DB
 	var err error
 	if dbi.sock != "" {
-		db, err = sql.Open("mysql", dbi.user+":"+dbi.pass+"@unix("+dbi.sock+")/?allowCleartextPasswords=1&tls=skip-verify")
+		db, err = sql.Open("mysql", dbi.user+":"+dbi.pass+"@unix("+dbi.sock+")/?"+dbParameters)
 		checkErr(err)
 	} else if dbi.host != "" {
-		db, err = sql.Open("mysql", dbi.user+":"+dbi.pass+"@tcp("+dbi.host+":"+dbi.port+")/?allowCleartextPasswords=1&tls=skip-verify")
+		db, err = sql.Open("mysql", dbi.user+":"+dbi.pass+"@tcp("+dbi.host+":"+dbi.port+")/?"+dbParameters)
 	}
 
 	// Ping database to verify credentials
