@@ -19,7 +19,7 @@ echo
 echo
 echo "Building Linux"
 mkdir -p bin/linux
-go build -ldflags "-X main.versionInformation $version" -o bin/linux/mytablecopy mytablecopy.go
+go build -ldflags "-X main.versionInformation=$version" -o bin/linux/mytablecopy mytablecopy.go
 if [[ $? -eq 0 ]]; then
         echo "  mytablecopy - OK"
 else
@@ -30,7 +30,7 @@ fi
 echo
 echo "Building Windows"
 mkdir -p bin/windows
-GOOS=windows GOARCH=amd64 go build -ldflags "-X main.versionInformation $version" -o bin/windows/mytablecopy.exe mytablecopy.go
+GOOS=windows GOARCH=amd64 go build -ldflags "-X main.versionInformation=$version" -o bin/windows/mytablecopy.exe mytablecopy.go
 if [[ $? -eq 0 ]]; then
         echo "  mytablecopy.exe - OK"
 else
@@ -41,7 +41,7 @@ fi
 echo
 echo "Building Darwin"
 mkdir -p bin/darwin
-GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.versionInformation $version" -o bin/darwin/mytablecopy mytablecopy.go
+GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.versionInformation=$version" -o bin/darwin/mytablecopy mytablecopy.go
 if [[ $? -eq 0 ]]; then
         echo "  mytablecopy - OK"
 else
