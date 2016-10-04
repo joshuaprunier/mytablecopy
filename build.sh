@@ -19,7 +19,7 @@ echo
 echo
 echo "Building Linux"
 mkdir -p bin/linux
-go build -ldflags "-X main.versionInformation=$version" -o bin/linux/mytablecopy mytablecopy.go
+GOOS=linux GOARCH=amd64 go build -ldflags "-X main.versionInformation=$version" -o bin/linux/mytablecopy mytablecopy.go
 if [[ $? -eq 0 ]]; then
         echo "  mytablecopy - OK"
 else
